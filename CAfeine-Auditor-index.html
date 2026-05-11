@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
+<title>CAfeine AUDITOR</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔍</text></svg>"/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Space+Grotesk:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{background:#070709;color:#EEEEF2;font-family:'Space Grotesk',system-ui,sans-serif;min-height:100vh}
+::-webkit-scrollbar{width:3px}::-webkit-scrollbar-track{background:#070709}::-webkit-scrollbar-thumb{background:#2A2D38;border-radius:2px}
+button,input,textarea{font-family:inherit;outline:none;border:none;background:none;color:inherit}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+@keyframes up{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.fade{animation:fade .3s ease}
+.up{animation:up .3s cubic-bezier(.34,1.56,.64,1)}
+.tap{transition:all .12s;cursor:pointer}.tap:active{transform:scale(.97)}
+input:-webkit-autofill{-webkit-box-shadow:0 0 0 100px #0F1015 inset;-webkit-text-fill-color:#EEEEF2}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const C={
+  bg:"#070709",s1:"#0F1015",s2:"#161820",b1:"#1E2230",b2:"#282E3E",
+  t1:"#EEEEF2",t2:"#9CA3AF",t3:"#5B6273",
+  am:"#E8A020",gr:"#22C55E",bl:"#60A5FA",rd:"#F87171",pu:"#A78BFA"
+};
+
+const PASSWORD = "CAfeineadmin@2026";
+const STORAGE_KEY = "cafeine_auditor_gh_token";
+const BASE_URL = "https://raw.githubusercontent.com/Kuldeepverma1004/CAfeine/main/";
+
+// ── LOGO ──────────────────────────────────────────────────────────────
+const Logo=()=>(
+  <span style={{fontFamily:"'Syne',sans-serif",fontSize:22,fontWeight:800,letterSpacing:-0.5,lineHeight:1}}>
+    <span style={{color:C.am}}>CA</span>
+    <span style={{color:C.t1}}>feine</span>
+    <span style={{color:C.t3,fontSize:13,fontWeight:700,marginLeft:8,letterSpacing:2,fontFamily:"'Space Mono',mono"}}>AUDITOR</span>
+  </span>
+);
+
+// ── CHECKS ────────────────────────────────────────────────────────────
+const SELF_CORRECTION_PHRASES = [
+  "let me recalculate","let me re","actually,","actually i","actually the",
+  "wait -","wait,","recomputing","nope","hmm,","let me check","recalculating","re-calculating"
+];
+
+function wordSimilarity(a,b){
+  const wa=a.toLowerCase().split(/\s+/),wb=b.toLowerCase().split(/\s+/);
+  const setA=new Set(wa),setB=new Set(wb);
+  let common=0;
+  setA.forEach(w=>{if(setB.has(w))common++;});
+  return common/Math.max(wa.length,wb.length);
+}
+
+function runChecks(chapters, subject){
+  const issues=[];
+  const push=(sev,ch,checkName,field,detail)=>issues.push({
+    severity:sev,
+    chapterId:ch.id||"?",
+    chapterName:ch.chapterName||ch.name||"Unnamed",
+    subject,
+    checkName,
+    detail,
+    field
+  });
+
+  chapters.forEach(ch=>{
+    const cid=ch.id||"?";
+    const cname=ch.chapterName||ch.name||"Unnamed";
+
+    // Collect all MCQs
+    const allMcqs=[];
+    if(Array.isArray(ch.mcqs)) ch.mcqs.forEach((m,i)=>allMcqs.push({m,path:`mcqs[${i}]`}));
+    if(ch.caseMCQs&&Array.isArray(ch.caseMCQs.questions))
+      ch.caseMCQs.questions.forEach((m,i)=>allMcqs.push({m,path:`caseMCQs.questions[${i}]`}));
+
+    // CHECK 1 — Self-correction language
+    allMcqs.forEach(({m,path})=>{
+      const exp=(m.exp||"").toLowerCase();
+      SELF_CORRECTION_PHRASES.forEach(phrase=>{
+        if(exp.includes(phrase)){
+          push("error",ch,"Self-correction language",`${path}.exp`,`Found phrase: "${phrase}"`);
+        }
+      });
+    });
+
+    // CHECK 2 — Answer index mismatch
+    allMcqs.forEach(({m,path})=>{
+      const opts=m.opts||[];
+      const ans=m.ans;
+      if(typeof ans!=="number"||ans<0||ans>3){
+        push("error",ch,"Answer index mismatch",path,`ans=${JSON.stringify(ans)} is not a valid index (0–3)`);
+      }
+      if(opts.length!==4){
+        push("error",ch,"Answer index mismatch",`${path}.opts`,`opts has ${opts.length} items, expected 4`);
+      }
+      if(typeof ans==="number"&&ans>=0&&ans<=3&&(!opts[ans]||opts[ans]===""))
+        push("error",ch,"Answer index mismatch",`${path}.opts[${ans}]`,`opts[${ans}] is empty or missing`);
+
+      // Rupee/value cross-check
+      if(m.exp&&typeof ans==="number"&&opts[ans]){
+        const rupeeMatches=(m.exp.match(/₹[\d,]+|Rs\.?\s*[\d,]+|\d[\d,]+/g)||[]);
+        rupeeMatches.forEach(val=>{
+          const clean=val.replace(/[₹Rs\.,\s]/g,"");
+          if(clean.length>2&&!opts[ans].toString().includes(clean)){
+            push("error",ch,"Answer index mismatch",`${path}.exp`,
+              `Explanation mentions "${val}" but it's not in correct option: "${opts[ans]}"`);
+          }
+        });
+      }
+    });
+
+    // CHECK 3 — Empty or placeholder content
+    const PLACEHOLDERS=["[Chapter Name]","[explanation]","Option A","Option B","Option C","Option D","...","TBD","TODO","placeholder"];
+    const checkField=(val,fieldPath)=>{
+      if(val===undefined||val===null) return;
+      const s=String(val);
+      if(s.trim()==="") push("error",ch,"Empty or placeholder content",fieldPath,"Field is empty");
+      PLACEHOLDERS.forEach(p=>{if(s.includes(p)) push("error",ch,"Empty or placeholder content",fieldPath,`Contains placeholder: "${p}"`);});
+    };
+    allMcqs.forEach(({m,path})=>{
+      checkField(m.q,`${path}.q`);
+      checkField(m.exp,`${path}.exp`);
+      (m.opts||[]).forEach((o,i)=>checkField(o,`${path}.opts[${i}]`));
+    });
+    (ch.tricky||[]).forEach((t,i)=>{checkField(t.point,`tricky[${i}].point`);checkField(t.mistake,`tricky[${i}].mistake`);});
+    (ch.dangerZones||[]).forEach((d,i)=>{checkField(d.point,`dangerZones[${i}].point`);checkField(d.mistake,`dangerZones[${i}].mistake`);});
+    (ch.flashcards||[]).forEach((f,i)=>{checkField(f.front,`flashcards[${i}].front`);checkField(f.back,`flashcards[${i}].back`);});
+    (ch.practiceProblems||[]).forEach((p,i)=>{checkField(p.problem,`practiceProblems[${i}].problem`);checkField(p.answer,`practiceProblems[${i}].answer`);});
+
+    // CHECK 4 — Minimum content counts
+    const mcqCount=allMcqs.length;
+    if(mcqCount<6) push("warning",ch,"Minimum content counts","mcqs/caseMCQs",`Only ${mcqCount} MCQs — minimum is 6`);
+    const trickyCount=(ch.tricky||[]).length+(ch.dangerZones||[]).length;
+    if(trickyCount<3) push("warning",ch,"Minimum content counts","tricky/dangerZones",`Only ${trickyCount} tricky/danger items — minimum is 3`);
+    if(ch.flashcards&&ch.flashcards.length<4)
+      push("warning",ch,"Minimum content counts","flashcards",`Only ${ch.flashcards.length} flashcards — minimum is 4`);
+    if(ch.practiceProblems&&ch.practiceProblems.length<2)
+      push("warning",ch,"Minimum content counts","practiceProblems",`Only ${ch.practiceProblems.length} practice problems — minimum is 2`);
+    if(!ch.amendments||ch.amendments.length<1)
+      push("warning",ch,"Minimum content counts","amendments",`No amendments found — minimum is 1`);
+
+    // CHECK 5 — Duplicate questions
+    const qs=allMcqs.map(({m,path})=>({q:m.q||"",path}));
+    for(let i=0;i<qs.length;i++){
+      for(let j=i+1;j<qs.length;j++){
+        const sim=wordSimilarity(qs[i].q,qs[j].q);
+        if(sim>0.8){
+          push("warning",ch,"Duplicate questions",`${qs[i].path} ↔ ${qs[j].path}`,
+            `${Math.round(sim*100)}% similar:\n"${qs[i].q.slice(0,80)}…"\n"${qs[j].q.slice(0,80)}…"`);
+        }
+      }
+    }
+
+    // CHECK 6 — Decision tree integrity
+    (ch.formulaGuide||[]).forEach((tree,ti)=>{
+      if(!Array.isArray(tree.nodes)||tree.nodes.length===0){
+        push("warning",ch,"Decision tree integrity",`formulaGuide[${ti}]`,"Tree has no nodes or nodes[0] missing");
+        return;
+      }
+      const nodeIds=new Set((tree.nodes||[]).map(n=>n.id));
+      const outcomeIds=new Set((tree.outcomes||[]).map(o=>o.id));
+      (tree.nodes||[]).forEach(node=>{
+        (node.branches||[]).forEach(br=>{
+          if(!nodeIds.has(br.target)&&!outcomeIds.has(br.target))
+            push("warning",ch,"Decision tree integrity",`formulaGuide[${ti}].node[${node.id}]`,
+              `Branch target "${br.target}" does not exist in nodes or outcomes`);
+        });
+      });
+    });
+
+    // CHECK 7 — Flashcard verbosity
+    (ch.flashcards||[]).forEach((f,i)=>{
+      const back=(f.back||"");
+      if(back.length<30&&back.length>0) push("info",ch,"Flashcard verbosity",`flashcards[${i}].back`,"Back field may be too short — check if verbatim");
+      if(back.length>500) push("info",ch,"Flashcard verbosity",`flashcards[${i}].back`,"Back field very long — consider splitting");
+    });
+
+    // CHECK 8 — Amendment pdfStatus risk
+    (ch.amendments||[]).forEach((a,i)=>{
+      if(a.pdfStatus==="risk")
+        push("warning",ch,"Amendment PDF risk",`amendments[${i}]`,
+          `Amendment marked as RISK — study material may show outdated position. Topic: "${a.topic||"?"}" | Old: "${a.oldPosition||"?"}"`);
+    });
+
+    // CHECK 9 — Case MCQ scenario missing
+    if(ch.caseMCQs&&Array.isArray(ch.caseMCQs.questions)&&ch.caseMCQs.questions.length>0){
+      const scenario=ch.caseMCQs.scenario||"";
+      if(scenario.trim().length<50)
+        push("warning",ch,"Case MCQ scenario missing","caseMCQs.scenario",
+          `Case MCQ questions exist but scenario is ${scenario.length===0?"missing":"too short"} (${scenario.length} chars, min 50)`);
+    }
+
+    // CHECK 10 — Explanation length
+    allMcqs.forEach(({m,path})=>{
+      const exp=m.exp||"";
+      if(exp.length>0&&exp.length<30) push("info",ch,"Explanation length",`${path}.exp`,"Explanation may be too brief");
+      if(exp.length>600) push("info",ch,"Explanation length",`${path}.exp`,"Explanation very long — may contain working notes not suitable for students");
+    });
+  });
+
+  return issues;
+}
+
+// ── FETCH SUBJECT DATA ────────────────────────────────────────────────
+async function fetchSubject(n, token){
+  const url=`${BASE_URL}src/data/p${n}.js`;
+  try{
+    const r=await fetch(url,{headers:{"Authorization":`token ${token}`,"Accept":"application/vnd.github.v3.raw"}});
+    if(r.status===404) return null;
+    if(!r.ok) return null;
+    const text=await r.text();
+    const jsonStr=text.substring(text.indexOf('=')+1).trim();
+    const data=JSON.parse(jsonStr);
+    if(!Array.isArray(data)||data.length===0) return null;
+    return data;
+  }catch{return null;}
+}
+
+// ── MAIN APP ──────────────────────────────────────────────────────────
+const App=()=>{
+  const [screen,setScreen]=React.useState("login"); // login | main
+  const [pw,setPw]=React.useState("");
+  const [pwErr,setPwErr]=React.useState("");
+  const [showKeys,setShowKeys]=React.useState(false);
+  const [token,setToken]=React.useState(()=>localStorage.getItem(STORAGE_KEY)||"");
+  const [tokenInput,setTokenInput]=React.useState("");
+  const [loading,setLoading]=React.useState(false);
+  const [loadMsg,setLoadMsg]=React.useState("");
+  const [subjectStatus,setSubjectStatus]=React.useState([]); // [{n,found}]
+  const [issues,setIssues]=React.useState([]);
+  const [chapters,setChapters]=React.useState([]); // [{id,name,subject,issueCount}]
+  const [lastRun,setLastRun]=React.useState(null);
+  const [filter,setFilter]=React.useState("All");
+  const [expanded,setExpanded]=React.useState({});
+  const [hasRun,setHasRun]=React.useState(false);
+
+  // ── LOGIN ──
+  if(screen==="login"){
+    return(
+      <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:C.bg}}>
+        <div style={{width:340,background:C.s1,border:`1px solid ${C.b1}`,borderRadius:16,padding:32}}>
+          <div style={{textAlign:"center",marginBottom:28}}>
+            <Logo/>
+            <div style={{color:C.t3,fontSize:12,fontFamily:"'Space Mono',mono",marginTop:8}}>CONTENT AUDIT SYSTEM</div>
+          </div>
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:11,color:C.t3,fontFamily:"'Space Mono',mono",marginBottom:6}}>PASSWORD</div>
+            <input
+              type="password" value={pw}
+              onChange={e=>{setPw(e.target.value);setPwErr("");}}
+              onKeyDown={e=>{if(e.key==="Enter"){if(pw===PASSWORD){setScreen("main");}else setPwErr("Wrong password");} }}
+              style={{width:"100%",background:C.s2,border:`1px solid ${pwErr?C.rd:C.b2}`,borderRadius:8,padding:"10px 12px",fontSize:14,color:C.t1}}
+              placeholder="Enter password"
+              autoFocus
+            />
+            {pwErr&&<div style={{color:C.rd,fontSize:11,marginTop:4,fontFamily:"'Space Mono',mono"}}>{pwErr}</div>}
+          </div>
+          <button
+            onClick={()=>{if(pw===PASSWORD)setScreen("main");else setPwErr("Wrong password");}}
+            style={{width:"100%",padding:"11px",borderRadius:8,background:C.am,color:"#000",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}
+          >ENTER</button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── KEYS MODAL ──
+  const KeysModal=()=>(
+    <div style={{position:"fixed",inset:0,background:"rgba(7,7,9,.85)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000}} onClick={()=>setShowKeys(false)}>
+      <div style={{width:360,background:C.s1,border:`1px solid ${C.b1}`,borderRadius:14,padding:24}} onClick={e=>e.stopPropagation()}>
+        <div style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:15,marginBottom:4}}>GitHub Token</div>
+        <div style={{color:C.t3,fontSize:11,marginBottom:14,fontFamily:"'Space Mono',mono"}}>Used to fetch data files from the repo</div>
+        <input
+          value={tokenInput||token}
+          onChange={e=>setTokenInput(e.target.value)}
+          style={{width:"100%",background:C.s2,border:`1px solid ${C.b2}`,borderRadius:8,padding:"10px 12px",fontSize:12,fontFamily:"'Space Mono',mono",color:C.t1,marginBottom:10}}
+          placeholder="ghp_..."
+        />
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={()=>{const t=tokenInput||token;localStorage.setItem(STORAGE_KEY,t);setToken(t);setShowKeys(false);setTokenInput("");}}
+            style={{flex:1,padding:"10px",borderRadius:8,background:C.am,color:"#000",fontSize:13,fontWeight:700,cursor:"pointer"}}>Save</button>
+          <button onClick={()=>{localStorage.removeItem(STORAGE_KEY);setToken("");setTokenInput("");setShowKeys(false);}}
+            style={{flex:1,padding:"10px",borderRadius:8,background:"transparent",border:`1px solid ${C.b2}`,color:C.t3,fontSize:13,cursor:"pointer"}}>Clear</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── RUN AUDIT ──
+  const runAudit=async()=>{
+    if(!token){setShowKeys(true);return;}
+    setLoading(true);setHasRun(false);setIssues([]);setChapters([]);setExpanded({});
+    setLoadMsg("Connecting to GitHub…");
+    const statuses=[];
+    const allIssues=[];
+    const allChapters=[];
+
+    for(let n=1;n<=6;n++){
+      setLoadMsg(`Fetching P${n} data…`);
+      const data=await fetchSubject(n,token);
+      if(!data){statuses.push({n,found:false});continue;}
+      statuses.push({n,found:true,count:data.length});
+      // run checks
+      const subIssues=runChecks(data,`P${n}`);
+      allIssues.push(...subIssues);
+      data.forEach(ch=>{
+        const chid=ch.id||`P${n}-?`;
+        const chi=subIssues.filter(i=>i.chapterId===chid||i.chapterName===(ch.chapterName||ch.name));
+        allChapters.push({
+          id:chid,
+          name:ch.chapterName||ch.name||"Unnamed",
+          subject:`P${n}`,
+          issues:chi,
+          errCount:chi.filter(i=>i.severity==="error").length,
+          warnCount:chi.filter(i=>i.severity==="warning").length,
+          infoCount:chi.filter(i=>i.severity==="info").length,
+        });
+      });
+    }
+    setSubjectStatus(statuses);
+    setIssues(allIssues);
+    setChapters(allChapters);
+    setLastRun(new Date());
+    setHasRun(true);
+    setLoading(false);
+  };
+
+  // ── FILTER ──
+  const foundSubjects=subjectStatus.filter(s=>s.found).map(s=>`P${s.n}`);
+  const filterTabs=["All",...foundSubjects,"Errors","Warnings"];
+
+  const filteredChapters=chapters.filter(ch=>{
+    if(filter==="All") return true;
+    if(filter==="Errors") return ch.errCount>0;
+    if(filter==="Warnings") return ch.warnCount>0;
+    return ch.subject===filter;
+  });
+
+  const totalErrors=issues.filter(i=>i.severity==="error").length;
+  const totalWarnings=issues.filter(i=>i.severity==="warning").length;
+  const totalInfo=issues.filter(i=>i.severity==="info").length;
+
+  // ── EXPORT ──
+  const exportReport=()=>{
+    const report={
+      timestamp:new Date().toISOString(),
+      chaptersAudited:chapters.length,
+      totalErrors,totalWarnings,totalInfo,
+      issues
+    };
+    const blob=new Blob([JSON.stringify(report,null,2)],{type:"application/json"});
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download=`cafeine-audit-${Date.now()}.json`;
+    a.click();
+  };
+
+  const sevColor=s=>s==="error"?C.rd:s==="warning"?C.am:C.bl;
+  const sevIcon=s=>s==="error"?"●":s==="warning"?"●":"●";
+
+  // ── CHAPTER CARD ──
+  const ChapterCard=({ch})=>{
+    const open=!!expanded[ch.id+ch.subject];
+    const toggle=()=>setExpanded(p=>({...p,[ch.id+ch.subject]:!p[ch.id+ch.subject]}));
+    const clean=ch.errCount===0&&ch.warnCount===0&&ch.infoCount===0;
+
+    return(
+      <div style={{background:C.s1,border:`1px solid ${clean?C.gr+"30":ch.errCount>0?C.rd+"25":C.b1}`,borderRadius:10,marginBottom:6,overflow:"hidden"}}>
+        <div onClick={clean?null:toggle} style={{padding:"12px 14px",display:"flex",alignItems:"center",gap:10,cursor:clean?"default":"pointer",userSelect:"none"}}>
+          <span style={{fontFamily:"'Space Mono',mono",fontSize:10,color:C.t3,minWidth:40}}>{ch.id}</span>
+          <span style={{flex:1,fontSize:13,fontWeight:500,color:C.t1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ch.name}</span>
+          <span style={{fontSize:9,fontFamily:"'Space Mono',mono",color:C.am,background:`${C.am}18`,border:`1px solid ${C.am}30`,padding:"2px 6px",borderRadius:3}}>{ch.subject}</span>
+          {clean
+            ? <span style={{color:C.gr,fontSize:13}}>✓</span>
+            : <>
+                {ch.errCount>0&&<span style={{fontSize:10,fontFamily:"'Space Mono',mono",color:C.rd,background:`${C.rd}18`,padding:"1px 6px",borderRadius:3}}>{ch.errCount}E</span>}
+                {ch.warnCount>0&&<span style={{fontSize:10,fontFamily:"'Space Mono',mono",color:C.am,background:`${C.am}18`,padding:"1px 6px",borderRadius:3}}>{ch.warnCount}W</span>}
+                {ch.infoCount>0&&<span style={{fontSize:10,fontFamily:"'Space Mono',mono",color:C.bl,background:`${C.bl}18`,padding:"1px 6px",borderRadius:3}}>{ch.infoCount}I</span>}
+                <span style={{color:C.t3,fontSize:11,marginLeft:4}}>{open?"▲":"▼"}</span>
+              </>
+          }
+        </div>
+        {open&&!clean&&(
+          <div style={{borderTop:`1px solid ${C.b1}`,padding:"10px 14px",display:"flex",flexDirection:"column",gap:8}} className="fade">
+            {ch.issues.map((iss,idx)=>(
+              <div key={idx} style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+                <span style={{color:sevColor(iss.severity),fontSize:10,marginTop:3,flexShrink:0}}>{sevIcon(iss.severity)}</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:2}}>
+                    <span style={{fontFamily:"'Space Mono',mono",fontSize:10,color:sevColor(iss.severity),fontWeight:700}}>{iss.checkName}</span>
+                    <span style={{fontFamily:"'Space Mono',mono",fontSize:9,color:C.t3}}>{iss.field}</span>
+                  </div>
+                  <div style={{fontSize:12,color:C.t2,lineHeight:1.5,whiteSpace:"pre-wrap"}}>{iss.detail}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return(
+    <div style={{minHeight:"100vh",background:C.bg}}>
+      {showKeys&&<KeysModal/>}
+
+      {/* HEADER */}
+      <div style={{background:C.s1,borderBottom:`1px solid ${C.b1}`,padding:"14px 20px",display:"flex",alignItems:"center",gap:12,position:"sticky",top:0,zIndex:100}}>
+        <Logo/>
+        <div style={{flex:1}}/>
+        {lastRun&&<span style={{fontSize:10,color:C.t3,fontFamily:"'Space Mono',mono"}}>Last run: {lastRun.toLocaleTimeString()}</span>}
+        <button onClick={()=>setShowKeys(true)} style={{background:C.s2,border:`1px solid ${C.b2}`,borderRadius:7,padding:"6px 10px",fontSize:13,cursor:"pointer",color:token?C.gr:C.t3}} title="GitHub Token">⚙</button>
+        <button
+          onClick={runAudit}
+          disabled={loading}
+          style={{padding:"8px 18px",borderRadius:8,background:loading?C.b2:C.am,color:loading?C.t3:"#000",fontSize:13,fontWeight:700,cursor:loading?"default":"pointer",fontFamily:"inherit",border:"none",transition:"all .15s"}}
+        >
+          {loading?"…":"▶ Run Audit"}
+        </button>
+        {hasRun&&<button onClick={exportReport} style={{padding:"8px 14px",borderRadius:8,background:"transparent",border:`1px solid ${C.b2}`,color:C.t2,fontSize:12,cursor:"pointer"}}>Export JSON</button>}
+      </div>
+
+      <div style={{maxWidth:840,margin:"0 auto",padding:"20px 16px"}}>
+
+        {/* LOADING */}
+        {loading&&(
+          <div style={{textAlign:"center",padding:"60px 20px"}} className="fade">
+            <div style={{width:28,height:28,border:`2px solid ${C.b2}`,borderTop:`2px solid ${C.am}`,borderRadius:"50%",margin:"0 auto 16px",animation:"spin 1s linear infinite"}}/>
+            <div style={{color:C.t2,fontFamily:"'Space Mono',mono",fontSize:12}}>{loadMsg}</div>
+          </div>
+        )}
+
+        {/* SUBJECT STATUS */}
+        {!loading&&hasRun&&(
+          <div style={{marginBottom:16,display:"flex",flexWrap:"wrap",gap:6}} className="fade">
+            {subjectStatus.map(s=>(
+              <span key={s.n} style={{fontSize:10,fontFamily:"'Space Mono',mono",
+                color:s.found?C.gr:C.t3,
+                background:s.found?`${C.gr}12`:`${C.t3}10`,
+                border:`1px solid ${s.found?C.gr+"30":C.b1}`,
+                padding:"3px 8px",borderRadius:4}}>
+                P{s.n} {s.found?`✓ ${s.count}ch`:"— not found"}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* SUMMARY CARDS */}
+        {!loading&&hasRun&&(
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:20}} className="up">
+            {[
+              {label:"Chapters",val:chapters.length,color:C.t2},
+              {label:"Errors",val:totalErrors,color:C.rd},
+              {label:"Warnings",val:totalWarnings,color:C.am},
+              {label:"Info",val:totalInfo,color:C.bl},
+            ].map(c=>(
+              <div key={c.label} style={{background:C.s1,border:`1px solid ${c.color}25`,borderRadius:10,padding:"14px 16px",textAlign:"center"}}>
+                <div style={{fontFamily:"'Space Mono',mono",fontSize:24,fontWeight:700,color:c.color,lineHeight:1}}>{c.val}</div>
+                <div style={{fontSize:10,color:C.t3,marginTop:4,fontFamily:"'Space Mono',mono",letterSpacing:1}}>{c.label.toUpperCase()}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* FILTER TABS */}
+        {!loading&&hasRun&&(
+          <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:16}}>
+            {filterTabs.map(tab=>(
+              <button key={tab} onClick={()=>setFilter(tab)}
+                style={{padding:"5px 12px",borderRadius:6,fontSize:11,fontFamily:"'Space Mono',mono",cursor:"pointer",border:"none",
+                  background:filter===tab?C.am:"transparent",
+                  color:filter===tab?"#000":C.t3,
+                  outline:filter===tab?"none":`1px solid ${C.b2}`}}>
+                {tab}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* CHAPTERS LIST */}
+        {!loading&&hasRun&&(
+          <div className="fade">
+            {filteredChapters.length===0
+              ? <div style={{color:C.t3,textAlign:"center",padding:40,fontFamily:"'Space Mono',mono",fontSize:12}}>No chapters match this filter.</div>
+              : filteredChapters.map(ch=><ChapterCard key={ch.id+ch.subject} ch={ch}/>)
+            }
+          </div>
+        )}
+
+        {/* EMPTY STATE */}
+        {!loading&&!hasRun&&(
+          <div style={{textAlign:"center",padding:"80px 20px",color:C.t3}}>
+            <div style={{fontSize:40,marginBottom:16}}>🔍</div>
+            <div style={{fontFamily:"'Syne',sans-serif",fontSize:18,fontWeight:700,color:C.t2,marginBottom:8}}>Ready to audit</div>
+            <div style={{fontSize:13,fontFamily:"'Space Mono',mono"}}>
+              {token?"Click ▶ Run Audit to fetch and check all chapter data.":"Set your GitHub token (⚙) then run the audit."}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+ReactDOM.render(<App/>,document.getElementById("root"));
+</script>
+</body>
+</html>
