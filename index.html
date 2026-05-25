@@ -107,17 +107,9 @@ function runChecks(chapters, subject){
       if(typeof ans==="number"&&ans>=0&&ans<=3&&(!opts[ans]||opts[ans]===""))
         push("error",ch,"Answer index mismatch",`${path}.opts[${ans}]`,`opts[${ans}] is empty or missing`);
 
-      // Rupee/value cross-check
-      if(m.exp&&typeof ans==="number"&&opts[ans]){
-        const rupeeMatches=(m.exp.match(/₹[\d,]+|Rs\.?\s*[\d,]+|\d[\d,]+/g)||[]);
-        rupeeMatches.forEach(val=>{
-          const clean=val.replace(/[₹Rs\.,\s]/g,"");
-          if(clean.length>2&&!opts[ans].toString().includes(clean)){
-            push("error",ch,"Answer index mismatch",`${path}.exp`,
-              `Explanation mentions "${val}" but it's not in correct option: "${opts[ans]}"`);
-          }
-        });
-      }
+      // Rupee/value cross-check removed — generates near-100% false positives
+      // for CA content (years, section numbers, standard refs are NOT expected
+      // to appear verbatim in answer options).
     });
 
     // CHECK 3 — Empty or placeholder content
