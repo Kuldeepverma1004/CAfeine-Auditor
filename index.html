@@ -35,7 +35,9 @@ const C={
 
 const PASSWORD = "CAfeineadmin@2026";
 const STORAGE_KEY = "cafeine_auditor_gh_token";
-const BASE_URL = "https://raw.githubusercontent.com/Kuldeepverma1004/CAfeine/main/";
+const REPO_OWNER = "Kuldeepverma1004";
+const REPO_NAME  = "CAfeine";
+const API_BASE   = "https://api.github.com";
 
 // ── LOGO ──────────────────────────────────────────────────────────────
 const Logo=()=>(
@@ -210,19 +212,29 @@ function runChecks(chapters, subject){
   return issues;
 }
 
-// ── FETCH SUBJECT DATA ────────────────────────────────────────────────
+// ── FETCH SUBJECT DATA ─────────────────────────────────────────────────
+// Uses GitHub Contents API (CORS-safe). raw.githubusercontent.com rejects
+// Authorization headers in browser CORS preflights — this fixes that.
 async function fetchSubject(n, token){
-  const url=`${BASE_URL}src/data/p${n}.js`;
+  var path='src/data/p'+n+'.js';
+  var url=API_BASE+'/repos/'+REPO_OWNER+'/'+REPO_NAME+'/contents/'+path;
   try{
-    const r=await fetch(url,{headers:{"Authorization":`token ${token}`,"Accept":"application/vnd.github.v3.raw"}});
+    var headers={'Accept':'application/vnd.github.v3+json'};
+    if(token) headers['Authorization']='token '+token;
+    var r=await fetch(url,{headers:headers});
     if(r.status===404) return null;
     if(!r.ok) return null;
-    const text=await r.text();
-    const jsonStr=text.substring(text.indexOf('=')+1).trim();
-    const data=JSON.parse(jsonStr);
+    var json=await r.json();
+    if(!json.content) return null;
+    var text=atob(json.content.replace(/\n/g,''));
+    var jsonStr=text.substring(text.indexOf('=')+1).trim();
+    var data=JSON.parse(jsonStr);
     if(!Array.isArray(data)||data.length===0) return null;
     return data;
-  }catch{return null;}
+  }catch(e){
+    console.error('fetchSubject P'+n+' error:',e);
+    return null;
+  }
 }
 
 // ── MAIN APP ──────────────────────────────────────────────────────────
