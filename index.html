@@ -113,22 +113,26 @@ function runChecks(chapters, subject){
     });
 
     // CHECK 3 — Empty or placeholder content
-    const PLACEHOLDERS=["[Chapter Name]","[explanation]","Option A","Option B","Option C","Option D","...","TBD","TODO","placeholder"];
-    const checkField=(val,fieldPath)=>{
+    // PLACEHOLDERS_EXP: strings that are only placeholders in explanation/question fields
+    // PLACEHOLDERS_OPT: includes "Option A/B/C/D" — only meaningful as placeholders in opts[]
+    //   (explanations legitimately use "Option A is wrong because..." as reference labels)
+    const PLACEHOLDERS_ALL=["[Chapter Name]","[explanation]","...","TBD","TODO","placeholder"];
+    const PLACEHOLDERS_OPT=["Option A","Option B","Option C","Option D",...PLACEHOLDERS_ALL];
+    const checkField=(val,fieldPath,placeholders)=>{
       if(val===undefined||val===null) return;
       const s=String(val);
       if(s.trim()==="") push("error",ch,"Empty or placeholder content",fieldPath,"Field is empty");
-      PLACEHOLDERS.forEach(p=>{if(s.includes(p)) push("error",ch,"Empty or placeholder content",fieldPath,`Contains placeholder: "${p}"`);});
+      placeholders.forEach(p=>{if(s.includes(p)) push("error",ch,"Empty or placeholder content",fieldPath,`Contains placeholder: "${p}"`);});
     };
     allMcqs.forEach(({m,path})=>{
-      checkField(m.q,`${path}.q`);
-      checkField(m.exp,`${path}.exp`);
-      (m.opts||[]).forEach((o,i)=>checkField(o,`${path}.opts[${i}]`));
+      checkField(m.q,`${path}.q`,PLACEHOLDERS_ALL);
+      checkField(m.exp,`${path}.exp`,PLACEHOLDERS_ALL);
+      (m.opts||[]).forEach((o,i)=>checkField(o,`${path}.opts[${i}]`,PLACEHOLDERS_OPT));
     });
-    (ch.tricky||[]).forEach((t,i)=>{checkField(t.point,`tricky[${i}].point`);checkField(t.mistake,`tricky[${i}].mistake`);});
-    (ch.dangerZones||[]).forEach((d,i)=>{checkField(d.point,`dangerZones[${i}].point`);checkField(d.mistake,`dangerZones[${i}].mistake`);});
-    (ch.flashcards||[]).forEach((f,i)=>{checkField(f.front,`flashcards[${i}].front`);checkField(f.back,`flashcards[${i}].back`);});
-    (ch.practiceProblems||[]).forEach((p,i)=>{checkField(p.problem,`practiceProblems[${i}].problem`);checkField(p.answer,`practiceProblems[${i}].answer`);});
+    (ch.tricky||[]).forEach((t,i)=>{checkField(t.point,`tricky[${i}].point`,PLACEHOLDERS_ALL);checkField(t.mistake,`tricky[${i}].mistake`,PLACEHOLDERS_ALL);});
+    (ch.dangerZones||[]).forEach((d,i)=>{checkField(d.point,`dangerZones[${i}].point`,PLACEHOLDERS_ALL);checkField(d.mistake,`dangerZones[${i}].mistake`,PLACEHOLDERS_ALL);});
+    (ch.flashcards||[]).forEach((f,i)=>{checkField(f.front,`flashcards[${i}].front`,PLACEHOLDERS_ALL);checkField(f.back,`flashcards[${i}].back`,PLACEHOLDERS_ALL);});
+    (ch.practiceProblems||[]).forEach((p,i)=>{checkField(p.problem,`practiceProblems[${i}].problem`,PLACEHOLDERS_ALL);checkField(p.answer,`practiceProblems[${i}].answer`,PLACEHOLDERS_ALL);});
 
     // CHECK 4 — Minimum content counts
     const mcqCount=allMcqs.length;
